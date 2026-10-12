@@ -35,6 +35,16 @@ def test_health_check_endpoint():
     assert "model_name" in data
 
 
+def test_root_health_endpoint():
+    """Verify /health works identically for Docker and cloud platform health checks."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["model_loaded"] is True
+    assert "model_name" in data
+
+
 def test_metadata_endpoint():
     response = client.get("/api/metadata")
     assert response.status_code == 200

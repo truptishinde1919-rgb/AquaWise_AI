@@ -82,6 +82,7 @@ def read_root():
     }
 
 
+@app.get("/health", response_model=HealthResponse, tags=["Diagnostics"])
 @app.get("/api/health", response_model=HealthResponse, tags=["Diagnostics"])
 def health_check():
     """Returns runtime health and verifies whether the ML model is loaded."""
