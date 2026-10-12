@@ -1,0 +1,165 @@
+{
+  "model_name": "RandomForestClassifier",
+  "primary_metric": "roc_auc",
+  "roc_auc": 0.6708,
+  "metrics": {
+    "accuracy": 0.6585,
+    "precision": 0.5792,
+    "recall": 0.457,
+    "f1_score": 0.5109,
+    "roc_auc": 0.6708
+  },
+  "all_candidate_metrics": {
+    "RandomForestClassifier": {
+      "accuracy": 0.6585,
+      "precision": 0.5792,
+      "recall": 0.457,
+      "f1_score": 0.5109,
+      "roc_auc": 0.6708
+    },
+    "HistGradientBoostingClassifier": {
+      "accuracy": 0.6463,
+      "precision": 0.5732,
+      "recall": 0.3672,
+      "f1_score": 0.4476,
+      "roc_auc": 0.625
+    }
+  },
+  "features": {
+    "ph": {
+      "name": "ph",
+      "unit": "pH",
+      "description": "Acidity / Alkalinity level",
+      "min": 0.0,
+      "max": 14.0,
+      "mean": 7.08,
+      "median": 7.04,
+      "q25": 6.09,
+      "q75": 8.06,
+      "safe_min": 6.5,
+      "safe_max": 8.5
+    },
+    "Hardness": {
+      "name": "Hardness",
+      "unit": "mg/L",
+      "description": "Capacity of water to precipitate soap",
+      "min": 47.43,
+      "max": 323.12,
+      "mean": 196.37,
+      "median": 196.97,
+      "q25": 176.85,
+      "q75": 216.67,
+      "safe_min": 0.0,
+      "safe_max": 250.0
+    },
+    "Solids": {
+      "name": "Solids",
+      "unit": "ppm",
+      "description": "Total Dissolved Solids (TDS)",
+      "min": 320.94,
+      "max": 61227.2,
+      "mean": 22014.09,
+      "median": 20927.83,
+      "q25": 15666.69,
+      "q75": 27332.76,
+      "safe_min": 0.0,
+      "safe_max": 1000.0
+    },
+    "Chloramines": {
+      "name": "Chloramines",
+      "unit": "ppm",
+      "description": "Chloramine disinfectant concentration",
+      "min": 0.35,
+      "max": 13.13,
+      "mean": 7.12,
+      "median": 7.13,
+      "q25": 6.13,
+      "q75": 8.11,
+      "safe_min": 0.0,
+      "safe_max": 4.0
+    },
+    "Sulfate": {
+      "name": "Sulfate",
+      "unit": "mg/L",
+      "description": "Naturally occurring mineral salts",
+      "min": 129.0,
+      "max": 481.03,
+      "mean": 333.78,
+      "median": 333.07,
+      "q25": 307.7,
+      "q75": 359.95,
+      "safe_min": 0.0,
+      "safe_max": 250.0
+    },
+    "Conductivity": {
+      "name": "Conductivity",
+      "unit": "\u03bcS/cm",
+      "description": "Electrical conductivity",
+      "min": 181.48,
+      "max": 753.34,
+      "mean": 426.21,
+      "median": 421.88,
+      "q25": 365.73,
+      "q75": 481.79,
+      "safe_min": 0.0,
+      "safe_max": 400.0
+    },
+    "Organic_carbon": {
+      "name": "Organic_carbon",
+      "unit": "ppm",
+      "description": "Total Organic Carbon (TOC)",
+      "min": 2.2,
+      "max": 28.3,
+      "mean": 14.28,
+      "median": 14.22,
+      "q25": 12.07,
+      "q75": 16.56,
+      "safe_min": 0.0,
+      "safe_max": 4.0
+    },
+    "Trihalomethanes": {
+      "name": "Trihalomethanes",
+      "unit": "\u03bcg/L",
+      "description": "By-products of chlorine treatment",
+      "min": 0.74,
+      "max": 124.0,
+      "mean": 66.4,
+      "median": 66.62,
+      "q25": 55.84,
+      "q75": 77.34,
+      "safe_min": 0.0,
+      "safe_max": 80.0
+    },
+    "Turbidity": {
+      "name": "Turbidity",
+      "unit": "NTU",
+      "description": "Cloudiness caused by suspended particles",
+      "min": 1.45,
+      "max": 6.74,
+      "mean": 3.97,
+      "median": 3.96,
+      "q25": 3.44,
+      "q75": 4.5,
+      "safe_min": 0.0,
+      "safe_max": 5.0
+    }
+  },
+  "feature_order": [
+    "ph",
+    "Hardness",
+    "Solids",
+    "Chloramines",
+    "Sulfate",
+    "Conductivity",
+    "Organic_carbon",
+    "Trihalomethanes",
+    "Turbidity"
+  ],
+  "target": {
+    "name": "Potability",
+    "classes": {
+      "0": "Not Potable",
+      "1": "Potable"
+    }
+  }
+}

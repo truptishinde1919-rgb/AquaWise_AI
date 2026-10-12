@@ -1,0 +1,51 @@
+# Environment variables & secrets (CRITICAL: Never commit .env files)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python Virtual Environment & Bytecode
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Machine Learning Large Artifacts & Cache
+backend/models/*.joblib
+backend/data/raw/*.zip
+backend/data/raw/*.tar.gz
+
+# Node.js & Next.js Build Outputs
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+dist/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
