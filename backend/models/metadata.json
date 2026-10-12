@@ -25,6 +25,44 @@
       "roc_auc": 0.625
     }
   },
+  "feature_importances": {
+    "Sulfate": {
+      "importance": 0.1559,
+      "importance_pct": 15.59
+    },
+    "ph": {
+      "importance": 0.1444,
+      "importance_pct": 14.44
+    },
+    "Hardness": {
+      "importance": 0.1235,
+      "importance_pct": 12.35
+    },
+    "Chloramines": {
+      "importance": 0.1137,
+      "importance_pct": 11.37
+    },
+    "Solids": {
+      "importance": 0.1117,
+      "importance_pct": 11.17
+    },
+    "Conductivity": {
+      "importance": 0.0937,
+      "importance_pct": 9.37
+    },
+    "Organic_carbon": {
+      "importance": 0.0868,
+      "importance_pct": 8.68
+    },
+    "Trihalomethanes": {
+      "importance": 0.0856,
+      "importance_pct": 8.56
+    },
+    "Turbidity": {
+      "importance": 0.0847,
+      "importance_pct": 8.47
+    }
+  },
   "features": {
     "ph": {
       "name": "ph",

@@ -189,6 +189,16 @@ def predict_potability(payload: WaterParametersInput):
     else:
         grade = "Unsafe / Non-Potable"
 
+    # Extract top drivers from metadata
+    raw_imps = metadata.get("feature_importances", {})
+    sorted_drivers = sorted(
+        raw_imps.items(),
+        key=lambda item: item[1].get("importance", 0),
+        reverse=True
+    )
+    top_drivers = [driver[0] for driver in sorted_drivers[:3]]
+    simple_imps = {k: v.get("importance_pct", 0.0) for k, v in raw_imps.items()}
+
     return PredictionResponse(
         is_potable=is_potable,
         potability_label="Potable (Safe to Drink)" if is_potable else "Not Potable (Unsafe)",
@@ -198,6 +208,8 @@ def predict_potability(payload: WaterParametersInput):
         water_quality_grade=grade,
         parameter_evaluations=parameter_evals,
         warnings=warnings,
+        top_drivers=top_drivers,
+        feature_importances=simple_imps,
         model_name=metadata.get("model_name", "RandomForestClassifier"),
         model_version="1.0.0",
     )

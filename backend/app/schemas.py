@@ -107,6 +107,8 @@ class PredictionResponse(BaseModel):
     water_quality_grade: str  # "Safe / High Quality", "Caution / Moderate", "Unsafe"
     parameter_evaluations: List[ParameterStatus]
     warnings: List[str]
+    top_drivers: List[str] = Field(default_factory=list, description="Top 3 features driving this prediction")
+    feature_importances: Optional[Dict[str, float]] = None
     model_name: str
     model_version: str = "1.0.0"
 

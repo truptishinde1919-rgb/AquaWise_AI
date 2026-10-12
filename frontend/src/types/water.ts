@@ -37,6 +37,8 @@ export interface PredictionResponse {
   water_quality_grade: string;
   parameter_evaluations: ParameterEvaluation[];
   warnings: string[];
+  top_drivers?: string[];
+  feature_importances?: Record<string, number>;
   model_name: string;
   model_version: string;
 }
@@ -73,6 +75,7 @@ export interface ModelMetadata {
     f1_score: number;
     roc_auc: number;
   };
+  feature_importances?: Record<string, { importance: number; importance_pct: number }>;
   features: Record<string, FeatureMeta>;
   feature_order: string[];
 }

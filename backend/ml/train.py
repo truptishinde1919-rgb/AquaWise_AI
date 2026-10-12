@@ -231,6 +231,22 @@ def train_and_evaluate():
     joblib.dump(best_pipeline, MODEL_FILE)
     print(f"[EXPORT] Saved serialized pipeline to:\n         {MODEL_FILE}")
 
+    # Extract feature importance (MDI) if classifier supports it
+    feature_importances = {}
+    classifier = best_pipeline.named_steps.get("classifier")
+    if hasattr(classifier, "feature_importances_"):
+        raw_imps = classifier.feature_importances_
+        sorted_imps = sorted(zip(FEATURE_NAMES, raw_imps), key=lambda x: x[1], reverse=True)
+        print("\n[MODEL EXPLAINABILITY - FEATURE IMPORTANCES]")
+        for feat, imp in sorted_imps:
+            pct = round(float(imp * 100), 2)
+            feature_importances[feat] = {
+                "importance": round(float(imp), 4),
+                "importance_pct": pct,
+            }
+            bar = "#" * int(pct // 2)
+            print(f"   - {feat:16s}: {pct:5.2f}% | {bar}")
+
     feature_stats = compute_feature_statistics(df)
     metadata = {
         "model_name": best_name,
@@ -238,6 +254,7 @@ def train_and_evaluate():
         "roc_auc": evaluation_results[best_name]["roc_auc"],
         "metrics": evaluation_results[best_name],
         "all_candidate_metrics": evaluation_results,
+        "feature_importances": feature_importances,
         "features": feature_stats,
         "feature_order": FEATURE_NAMES,
         "target": {
@@ -248,7 +265,7 @@ def train_and_evaluate():
 
     with open(METADATA_FILE, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
-    print(f"[EXPORT] Saved model & feature metadata to:\n         {METADATA_FILE}")
+    print(f"\n[EXPORT] Saved model & feature metadata to:\n         {METADATA_FILE}")
     print("=" * 65)
 
     return best_pipeline, metadata

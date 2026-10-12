@@ -8,6 +8,7 @@ import {
   CheckCircleIcon,
   ShieldCheckIcon,
   InfoIcon,
+  SparklesIcon,
 } from "./icons";
 
 interface PredictionResultCardProps {
@@ -144,6 +145,26 @@ export function PredictionResultCard({
           />
         </div>
       </div>
+
+      {/* Top Statistical Drivers */}
+      {result.top_drivers && result.top_drivers.length > 0 && (
+        <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs">
+          <div className="flex items-center gap-1.5 font-semibold text-blue-900 dark:text-blue-200 mb-1.5">
+            <SparklesIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Key ML Statistical Drivers:</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {result.top_drivers.map((driver) => (
+              <span
+                key={driver}
+                className="px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700 text-[11px] font-medium"
+              >
+                {driver} ({result.feature_importances?.[driver] ?? 0}%)
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Parameter Safety Checklist */}
       <div>
