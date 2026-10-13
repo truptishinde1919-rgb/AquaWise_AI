@@ -180,11 +180,16 @@ python ml\train.py
 uvicorn app.main:app --reload --port 8000
 ```
 
-The backend is now live:
-* **Interactive Swagger UI:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-* **Health Check:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+1. 🌐 See Your Live Public Website (For Anyone in the World)
 
----
+Anyone on a phone, laptop, or tablet can access your live project:
+
+Live Frontend Website: 👉 https://aqua-wise-ai.vercel.app
+
+(or https://aqua-wise-da359h3lv-truptii-projects.vercel.app
+)
+
+You can share this link on your LinkedIn, resume, or with friends and recruiters!
 
 ### Step 3: Run the Test Suite
 
