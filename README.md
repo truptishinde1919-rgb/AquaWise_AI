@@ -295,7 +295,7 @@ Open your browser to:
 
 ## Research-backed agricultural assistant (RAG)
 
-The chat endpoint uses OpenAI embeddings and chat completions on the FastAPI backend; it does not call the legacy local knowledge list. Retrieved chunks are identified by document/chunk ID and cosine similarity in backend logs. The LLM must return a structured evidence-sufficiency decision; unsupported questions are returned without citations, and cited source indices map directly to the displayed paper/page records. Reported study accuracy must be attributed to the paper and explicitly distinguished from AquaWise model performance. The repository does not claim that a paper has been validated merely because it is registered or locally extractable; ingest documents only when their provenance and reuse license have been checked.
+The chat endpoint first uses OpenAI embeddings and PostgreSQL/pgvector retrieval. If vector retrieval is unavailable or empty, it searches the bundled, CC BY 4.0 Frontiers plant-disease PDF locally and still returns page citations. If OpenAI answer generation is unavailable, the endpoint returns short, directly quoted passages labeled as PDF excerpts rather than implying they are an AI-generated interpretation. The UI shows source details and an evidence note for each cited page. Reported study accuracy must be attributed to the paper and explicitly distinguished from AquaWise model performance. Additional documents must have verified provenance and reuse licenses before ingestion.
 
 ### Backend environment
 
@@ -383,7 +383,7 @@ npm run dev
 
 For Render, deploy the existing FastAPI backend as before, add `OPENAI_API_KEY`, `DATABASE_URL`, and optionally `RAG_MIN_SIMILARITY`, then run the SQL schema against the pgvector database and ingest the approved documents. For Vercel, keep the current frontend root and set only `NEXT_PUBLIC_API_URL` to the Render API URL. Existing potability and agricultural prediction routes are unchanged.
 
-The chat endpoint returns an explicit “insufficient research” result if no matching excerpts are retrieved or the LLM judges the retrieved evidence insufficient. Provider/database errors are surfaced to the UI; there is no local-knowledge answer fallback. Automated tests verify actual page text and chunk/page citation mapping against the bundled Frontiers PDF, plus mocked retrieval, citation, abstention, and provider behavior. These tests do not prove that the PDF is stored in a live database or that live semantic retrieval works; a configured OpenAI account and PostgreSQL/pgvector instance are required for that validation.
+If neither the vector corpus nor the bundled PDF contains relevant passages, the chat endpoint returns an explicit no-evidence response. When vector or answer-generation services are unavailable, it may return a clearly labeled extractive PDF response with page citations; this fallback is lexical retrieval, not a substitute for semantic RAG. Automated tests verify actual PDF page text, local fallback ranking, citation excerpts, and mocked provider/database behavior. These tests do not prove that live semantic retrieval works; a configured OpenAI account and PostgreSQL/pgvector instance are required for that validation.
 
 ---
 

@@ -8,6 +8,7 @@ Configured with CORS support for Next.js frontend deployed on Vercel or running 
 
 from pathlib import Path
 import json
+import logging
 import os
 import joblib
 import pandas as pd
@@ -20,9 +21,11 @@ from starlette.concurrency import run_in_threadpool
 from app.rag import (
     RagServiceError,
     citation_for_chunk,
+    format_extractive_pdf_response,
     generate_answer,
     generate_embeddings,
     rag_database_status,
+    search_bundled_research_pdf,
     search_research_chunks,
 )
 from app.schemas import (
@@ -46,6 +49,7 @@ from app.schemas import (
 
 # Load optional .env file
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Setup paths
 APP_DIR = Path(__file__).resolve().parent
@@ -371,53 +375,113 @@ def assess_pest_risk(payload: PestRiskInput) -> PestRiskResponse:
 
 @app.post("/api/chat", response_model=ChatResponse, tags=["AI Assistant"])
 async def agri_chat(payload: ChatRequest):
-    """Answer with OpenAI using semantically retrieved, page-cited research evidence."""
+    """Answer using research retrieval, with a bundled-PDF fallback if services are unavailable."""
+    local_docs = await run_in_threadpool(search_bundled_research_pdf, payload.message, 5)
+    docs: list[dict] = []
+    retrieval_error: RagServiceError | None = None
     try:
         query_embedding = (await generate_embeddings([payload.message]))[0]
         docs = await run_in_threadpool(search_research_chunks, query_embedding, 5)
-        if not docs:
-            return ChatResponse(
-                answer=(
-                    "I could not find sufficiently relevant research in the configured document library to "
-                    "answer this reliably. Add suitable peer-reviewed or official technical sources and try again."
-                ),
-                references=[],
-                provider="none",
-                uncertainty="No relevant documents were retrieved; no LLM answer was generated.",
-                evidence_used=False,
-            )
+    except RagServiceError as exc:
+        retrieval_error = exc
+        logger.warning(
+            "RAG vector retrieval unavailable; trying bundled PDF error_type=%s status_code=%s",
+            type(exc).__name__,
+            exc.status_code,
+        )
 
+    using_bundled_pdf = not docs
+    if using_bundled_pdf:
+        docs = local_docs
+    if not docs:
+        if retrieval_error:
+            raise HTTPException(
+                status_code=retrieval_error.status_code,
+                detail=str(retrieval_error),
+            ) from retrieval_error
+        return ChatResponse(
+            answer=(
+                "I could not find relevant passages in the available research PDF to answer this reliably. "
+                "Try asking about plant disease detection or add another verified research source."
+            ),
+            references=[],
+            provider="none",
+            uncertainty="No relevant document passages were found; no AI answer was generated.",
+            evidence_used=False,
+        )
+
+    try:
         rag_answer = await generate_answer(
             payload.message,
             docs,
             [message.model_dump() for message in payload.history],
         )
-        if not rag_answer.evidence_sufficient:
-            return ChatResponse(
-                answer=rag_answer.answer,
-                references=[],
-                provider="openai",
-                uncertainty="Retrieved research was insufficient to answer; no source is cited as support.",
-                evidence_used=False,
-            )
-
+    except RagServiceError as exc:
+        logger.warning(
+            "RAG answer generation unavailable; returning cited research excerpts error_type=%s status_code=%s",
+            type(exc).__name__,
+            exc.status_code,
+        )
+        cited_chunks = docs[:3]
         references = [
-            {"source_index": index, **citation_for_chunk(docs[index - 1])}
-            for index in rag_answer.citations
+            {"source_index": index, **citation_for_chunk(chunk)}
+            for index, chunk in enumerate(cited_chunks, start=1)
         ]
         return ChatResponse(
-            answer=rag_answer.answer,
+            answer=format_extractive_pdf_response(cited_chunks),
             references=references,
-            provider="openai",
+            provider="pdf-extractive",
             uncertainty=(
-                "The response is based on retrieved excerpts and cites their source pages. "
-                "Evidence may not cover local conditions; verify agronomic decisions with local experts. "
-                "No pesticide dose or application instruction is provided."
+                "These are short, directly quoted research passages, not an AI-generated interpretation. "
+                "Check the cited pages and consult local agricultural experts before acting."
             ),
             evidence_used=True,
         )
-    except RagServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    if using_bundled_pdf and not rag_answer.evidence_sufficient:
+        return ChatResponse(
+            answer=(
+                "The AI could not confidently summarize the available evidence. "
+                "Here are the closest matching passages from the bundled research PDF."
+            )
+            + "\n\n"
+            + format_extractive_pdf_response(docs[:3]).split("\n\n", 1)[1],
+            references=[
+                {"source_index": index, **citation_for_chunk(chunk)}
+                for index, chunk in enumerate(docs[:3], start=1)
+            ],
+            provider="pdf-extractive",
+            uncertainty=(
+                "These are directly quoted research passages; the PDF does not establish a confident answer. "
+                "Check the cited pages and consult local agricultural experts."
+            ),
+            evidence_used=True,
+        )
+
+    if not rag_answer.evidence_sufficient:
+        return ChatResponse(
+            answer=rag_answer.answer,
+            references=[],
+            provider="openai",
+            uncertainty="Retrieved research was insufficient to answer; no source is cited as support.",
+            evidence_used=False,
+        )
+
+    references = [
+        {"source_index": index, **citation_for_chunk(docs[index - 1])}
+        for index in rag_answer.citations
+    ]
+    return ChatResponse(
+        answer=rag_answer.answer,
+        references=references,
+        provider="openai",
+        uncertainty=(
+            "The response is based on retrieved excerpts and cites their source pages. "
+            "Evidence may not cover local conditions; verify agronomic decisions with local experts. "
+            "No pesticide dose or application instruction is provided."
+        ),
+        evidence_used=True,
+    )
 
 
 @app.get("/", tags=["General"])

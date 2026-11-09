@@ -25,6 +25,7 @@ type ChatCitation = {
   source_url: string | null;
   doi: string | null;
   license: string | null;
+  excerpt?: string | null;
 };
 
 type ChatMessage = {
@@ -32,6 +33,7 @@ type ChatMessage = {
   content: string;
   references?: ChatCitation[];
   uncertainty?: string;
+  provider?: string;
 };
 
 type PotabilityResult = {
@@ -336,13 +338,14 @@ export default function Home() {
         answer: string;
         references: ChatCitation[];
         uncertainty: string;
+        provider: string;
       }>("/api/chat", {
         message: `${question}${languageInstruction}`,
         history: nextMessages.slice(-12).map(({ role, content }) => ({ role, content })),
       });
       setChatMessages([
         ...nextMessages,
-        { role: "assistant", content: result.answer, references: result.references, uncertainty: result.uncertainty },
+        { role: "assistant", content: result.answer, references: result.references, uncertainty: result.uncertainty, provider: result.provider },
       ]);
     } catch (reason) {
       setChatError(reason instanceof Error ? reason.message : "The agricultural research assistant is unavailable.");
@@ -653,21 +656,22 @@ export default function Home() {
 
           {activeModule === "assistant" && (
             <div className="mx-auto max-w-4xl space-y-5">
-              <div><h1 className="text-xl font-bold text-slate-900">AI farmer assistant</h1><p className="mt-1 text-sm text-slate-500">Ask agricultural questions and review retrieved sources when available.</p></div>
+              <div><h1 className="text-xl font-bold text-slate-900">AI farmer assistant</h1><p className="mt-1 text-sm text-slate-500">Ask questions about the available research PDF; answers include page citations and evidence notes.</p></div>
               <Panel className="overflow-hidden p-0">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
-                  <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><Icon name="sparkles" size={21} /></span><div><div className="text-sm font-bold text-slate-900">AquaWise research assistant</div><div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Backend service status is not checked here</div></div></div>
+                  <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><Icon name="sparkles" size={21} /></span><div><div className="text-sm font-bold text-slate-900">AquaWise research assistant</div><div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Page-cited answers · PDF excerpt fallback</div></div></div>
                   <Select aria-label="Response language" label="Language" value={chatLanguage} onChange={(e) => setChatLanguage(e.target.value)} options={["English", "Hindi", "Marathi"].map((language) => ({ value: language, label: language }))} />
                 </div>
                 <div className="max-h-[55vh] min-h-72 space-y-4 overflow-y-auto bg-[#fbfcfb] px-4 py-5 sm:px-6" aria-live="polite">
                   {chatMessages.map((message, index) => (
                     <div key={`${message.role}-${index}`} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[92%] rounded-2xl px-4 py-3 sm:max-w-[82%] ${message.role === "user" ? "rounded-br-md bg-emerald-800 text-white" : "rounded-bl-md border border-slate-200 bg-white text-slate-700 shadow-sm"}`}>
+                        {message.provider === "pdf-extractive" && <div className="mb-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">PDF excerpts · AI summary unavailable</div>}
                         <div className="whitespace-pre-wrap text-sm leading-6">{message.content}</div>
-                        {message.references && message.references.length > 0 && <div className="mt-3 border-t border-slate-200 pt-2.5"><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800">Retrieved research sources</div><ul className="space-y-1.5">{message.references.map((citation, citationIndex) => {
+                        {message.references && message.references.length > 0 && <div className="mt-3 border-t border-slate-200 pt-2.5"><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800">Source references & evidence notes</div><ul className="space-y-2">{message.references.map((citation, citationIndex) => {
                           const doiUrl = citation.doi ? citation.doi.startsWith("http") ? citation.doi : `https://doi.org/${citation.doi}` : null;
                           const href = citation.source_url || doiUrl;
-                          return <li key={`${citation.title}-${citation.page_number}-${citationIndex}`} className="text-[11px] leading-5 text-slate-600"><span className="mr-1 font-bold">[{citation.source_index}]</span>{href ? <a href={href} target="_blank" rel="noreferrer" className="font-semibold text-emerald-800 underline">{citation.title}</a> : <strong>{citation.title}</strong>}{citation.publication_year ? ` (${citation.publication_year})` : ""} — p. {citation.page_number}{citation.authors?.length ? ` · ${citation.authors.join(", ")}` : ""}{citation.doi ? ` · DOI ${citation.doi.replace(/^https?:\/\/doi\.org\//, "")}` : ""}</li>;
+                          return <li key={`${citation.title}-${citation.page_number}-${citationIndex}`} className="text-[11px] leading-5 text-slate-600"><div><span className="mr-1 font-bold">[{citation.source_index}]</span>{href ? <a href={href} target="_blank" rel="noreferrer" className="font-semibold text-emerald-800 underline">{citation.title}</a> : <strong>{citation.title}</strong>}{citation.publication_year ? ` (${citation.publication_year})` : ""} — p. {citation.page_number}{citation.authors?.length ? ` · ${citation.authors.join(", ")}` : ""}{citation.doi ? ` · DOI ${citation.doi.replace(/^https?:\/\/doi\.org\//, "")}` : ""}</div>{citation.excerpt && <blockquote className="mt-1.5 border-l-2 border-emerald-300 pl-2.5 text-slate-500">Evidence note: “{citation.excerpt}”</blockquote>}</li>;
                         })}</ul></div>}
                         {message.uncertainty && <p className="mt-2 border-t border-slate-200 pt-2 text-[11px] leading-5 text-slate-500">{message.uncertainty}</p>}
                       </div>

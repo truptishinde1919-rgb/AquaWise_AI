@@ -8,6 +8,7 @@ import os
 import re
 import asyncio
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qsl, unquote, urlparse
@@ -23,7 +24,27 @@ MAX_RETRIES = 2
 REQUEST_TIMEOUT_SECONDS = 30.0
 MAX_CHUNK_CHARS = 1400
 CHUNK_OVERLAP_CHARS = 180
+BUNDLED_RESEARCH_PDF = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "research"
+    / "papers"
+    / "frontiers-2016-plant-disease.pdf"
+)
+BUNDLED_RESEARCH_METADATA = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "research"
+    / "metadata"
+    / "frontiers-2016-plant-disease.json"
+)
 logger = logging.getLogger(__name__)
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]{2,}")
+_SEARCH_STOP_WORDS = {
+    "a", "about", "an", "and", "are", "can", "do", "does", "for", "from",
+    "how", "in", "is", "it", "of", "on", "or", "say", "the", "this", "to",
+    "what", "with",
+}
 PERMITTED_INGEST_LICENSES = {
     "cc by 4.0",
     "cc-by-4.0",
@@ -601,6 +622,9 @@ def search_research_chunks(
 
 
 def citation_for_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+    excerpt = re.sub(r"\s+", " ", chunk["text"]).strip()
+    if len(excerpt) > 420:
+        excerpt = excerpt[:417].rsplit(" ", 1)[0] + "..."
     return {
         "title": chunk["title"],
         "authors": chunk.get("authors"),
@@ -609,7 +633,94 @@ def citation_for_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
         "source_url": chunk.get("source_url"),
         "doi": chunk.get("doi"),
         "license": chunk.get("license"),
+        "excerpt": excerpt,
     }
+
+
+@lru_cache(maxsize=2)
+def _load_bundled_research_chunks(
+    pdf_path: str,
+    metadata_path: str,
+) -> tuple[dict[str, Any], ...]:
+    metadata = ResearchMetadata.from_dict(
+        json.loads(Path(metadata_path).read_text(encoding="utf-8"))
+    )
+    ensure_ingestion_permitted(metadata)
+    pages = extract_pdf_pages(pdf_path)
+    return tuple(
+        {
+            **metadata.as_json(),
+            "page_number": chunk["page_number"],
+            "text": chunk["text"],
+        }
+        for chunk in chunk_pages(pages)
+    )
+
+
+def search_bundled_research_pdf(
+    question: str,
+    limit: int = 5,
+    *,
+    pdf_path: str | Path = BUNDLED_RESEARCH_PDF,
+    metadata_path: str | Path = BUNDLED_RESEARCH_METADATA,
+) -> list[dict[str, Any]]:
+    """Return page-cited excerpts ranked by local BM25 when vector search is unavailable."""
+    chunks = _load_bundled_research_chunks(str(pdf_path), str(metadata_path))
+    query_terms = [
+        term
+        for term in dict.fromkeys(_TOKEN_PATTERN.findall(question.casefold()))
+        if term not in _SEARCH_STOP_WORDS
+    ]
+    if not query_terms or limit < 1:
+        return []
+
+    tokenized_chunks = [
+        _TOKEN_PATTERN.findall(chunk["text"].casefold()) for chunk in chunks
+    ]
+    document_frequency: dict[str, int] = {}
+    for tokens in tokenized_chunks:
+        for term in set(tokens):
+            document_frequency[term] = document_frequency.get(term, 0) + 1
+
+    average_length = sum(map(len, tokenized_chunks)) / max(len(tokenized_chunks), 1)
+    scored: list[tuple[float, int]] = []
+    for index, tokens in enumerate(tokenized_chunks):
+        term_frequency: dict[str, int] = {}
+        for term in tokens:
+            term_frequency[term] = term_frequency.get(term, 0) + 1
+        score = 0.0
+        for term in query_terms:
+            frequency = term_frequency.get(term, 0)
+            if not frequency:
+                continue
+            inverse_frequency = math.log(
+                1
+                + (len(chunks) - document_frequency[term] + 0.5)
+                / (document_frequency[term] + 0.5)
+            )
+            length_normalization = 1.5 * (
+                1 - 0.75 + 0.75 * len(tokens) / max(average_length, 1)
+            )
+            score += inverse_frequency * frequency * 2.5 / (frequency + length_normalization)
+        if score > 0:
+            scored.append((score, index))
+
+    scored.sort(reverse=True)
+    return [dict(chunks[index]) for _, index in scored[:limit]]
+
+
+def format_extractive_pdf_response(chunks: list[dict[str, Any]]) -> str:
+    passages = []
+    for index, chunk in enumerate(chunks[:3], start=1):
+        excerpt = re.sub(r"\s+", " ", chunk["text"]).strip()
+        if len(excerpt) > 420:
+            excerpt = excerpt[:417].rsplit(" ", 1)[0] + "..."
+        passages.append(f"[{index}] “{excerpt}”")
+    return (
+        "The AI summarizer is temporarily unavailable, so I’m showing the closest "
+        "matching passages from the research PDF instead:\n\n"
+        + "\n\n".join(passages)
+    )
 
 
 def build_rag_prompt(

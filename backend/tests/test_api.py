@@ -292,6 +292,7 @@ def test_chat_endpoint_maps_only_cited_chunks_to_source_panel(monkeypatch):
             "source_url": "https://doi.org/10.0000/example",
             "doi": "10.0000/example",
             "license": None,
+            "excerpt": "Domain-shift excerpt.",
         }
     ]
 
@@ -332,6 +333,31 @@ def test_chat_endpoint_reports_insufficient_retrieved_evidence_without_citation(
     assert data["references"] == []
 
 
+def test_chat_endpoint_returns_cited_pdf_passages_when_openai_is_unavailable(monkeypatch):
+    from app import main, rag
+
+    async def unavailable_embeddings(texts):
+        raise rag.RagServiceError("Provider is rate-limiting requests.", 429)
+
+    monkeypatch.setattr(main, "generate_embeddings", unavailable_embeddings)
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "How does the paper detect plant disease from images?",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "pdf-extractive"
+    assert data["evidence_used"] is True
+    assert "research PDF" in data["answer"]
+    assert data["references"]
+    assert all(reference["excerpt"] for reference in data["references"])
+    assert all(reference["page_number"] > 0 for reference in data["references"])
+
+
 def test_chat_endpoint_reports_empty_retrieval_without_faking_llm(monkeypatch):
     from app import main
 
@@ -339,6 +365,7 @@ def test_chat_endpoint_reports_empty_retrieval_without_faking_llm(monkeypatch):
         return [[0.0] * 1536]
 
     monkeypatch.setattr(main, "generate_embeddings", embeddings)
+    monkeypatch.setattr(main, "search_bundled_research_pdf", lambda question, limit: [])
     monkeypatch.setattr(main, "search_research_chunks", lambda embedding, limit: [])
     monkeypatch.setattr(
         main,
@@ -359,6 +386,7 @@ def test_chat_endpoint_returns_explicit_provider_error(monkeypatch):
     async def embeddings(texts):
         raise rag.RagServiceError("The provider rejected credentials.", 503)
 
+    monkeypatch.setattr(main, "search_bundled_research_pdf", lambda question, limit: [])
     monkeypatch.setattr(main, "generate_embeddings", embeddings)
     response = client.post("/api/chat", json={"message": "Question", "history": []})
     assert response.status_code == 503

@@ -30,6 +30,7 @@ class ResearchCitation(BaseModel):
     source_url: Optional[str] = None
     doi: Optional[str] = None
     license: Optional[str] = None
+    excerpt: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

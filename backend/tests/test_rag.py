@@ -138,6 +138,20 @@ def test_bundled_frontiers_paper_citations_match_actual_pdf_pages():
         )
 
 
+def test_bundled_pdf_search_returns_relevant_page_cited_passages():
+    chunks = rag.search_bundled_research_pdf(
+        "How is plant disease detected from images?",
+        limit=3,
+    )
+    assert chunks
+    assert chunks[0]["title"] == "Using Deep Learning for Image-Based Plant Disease Detection"
+    assert all(chunk["page_number"] > 0 for chunk in chunks)
+    assert any("disease" in chunk["text"].lower() for chunk in chunks)
+    citation = rag.citation_for_chunk(chunks[0])
+    assert citation["page_number"] == chunks[0]["page_number"]
+    assert citation["excerpt"]
+
+
 def test_embedding_generation_accepts_ordered_vectors(monkeypatch):
     monkeypatch.setattr(rag, "_api_key", lambda: "test-key")
 
