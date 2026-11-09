@@ -84,8 +84,8 @@ const modules: { id: ModuleId; label: string; icon: IconName }[] = [
 ];
 
 const initialProfile: FarmerProfile = {
-  name: "Ravi Patil",
-  location: "Satara, Maharashtra",
+  name: "Trupti Shinde",
+  location: "Karjat, Maharashtra",
   farmArea: 4.5,
   crop: "Rice",
   variety: "Basmati",
@@ -270,7 +270,12 @@ export default function Home() {
     const timer = window.setTimeout(() => {
       try {
         const saved = window.localStorage.getItem("aquawise-farmer-profile");
-        if (saved) setProfile({ ...initialProfile, ...JSON.parse(saved) as Partial<FarmerProfile> });
+        if (saved) {
+          const storedProfile = { ...initialProfile, ...JSON.parse(saved) as Partial<FarmerProfile> };
+          if (storedProfile.name === "Ravi Patil") storedProfile.name = initialProfile.name;
+          if (storedProfile.location === "Satara, Maharashtra") storedProfile.location = initialProfile.location;
+          setProfile(storedProfile);
+        }
       } catch {
         setError("Saved farm details could not be loaded from this browser.");
       }
