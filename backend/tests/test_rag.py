@@ -534,6 +534,8 @@ def test_database_status_reports_ready_counts_without_credentials(monkeypatch):
         def execute(self, query):
             class Result:
                 def fetchone(self):
+                    if query == "SELECT 1":
+                        return (1,)
                     if "pg_extension" in query:
                         return (True, True, True)
                     return (1, 3)
@@ -572,6 +574,8 @@ def test_database_status_distinguishes_empty_research_collection(monkeypatch):
         def execute(self, query):
             class Result:
                 def fetchone(self):
+                    if query == "SELECT 1":
+                        return (1,)
                     if "pg_extension" in query:
                         return (True, True, True)
                     return (0, 0)
@@ -594,6 +598,84 @@ def test_database_status_sanitizes_unavailable_database(monkeypatch):
     assert status["database_configured"] is True
     assert "secret" not in str(status)
     assert "db.example" not in str(status)
+
+
+def test_database_status_logs_presence_flags_without_values(caplog, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://diagnostic-user:private-value@db.example/secret-db")
+    monkeypatch.setenv("OPENAI_API_KEY", "diagnostic-openai-secret")
+    monkeypatch.setattr(
+        rag,
+        "connect_database",
+        lambda **kwargs: (_ for _ in ()).throw(rag.RagServiceError("unavailable")),
+    )
+    with caplog.at_level("INFO", logger=rag.__name__):
+        rag.rag_database_status()
+    assert "database_url_present=True openai_api_key_present=True" in caplog.text
+    for secret in ("private-value", "db.example", "secret-db", "diagnostic-openai-secret"):
+        assert secret not in caplog.text
+
+
+def test_database_connect_logs_driver_type_without_connection_details(caplog, monkeypatch):
+    import sys
+    import types
+
+    class FakeDatabaseError(Exception):
+        sqlstate = "08001"
+
+    def fail_connect(_database_url):
+        raise FakeDatabaseError("sensitive connection detail")
+
+    fake_psycopg = types.ModuleType("psycopg")
+    fake_psycopg.Error = FakeDatabaseError
+    fake_psycopg.connect = fail_connect
+    monkeypatch.setitem(sys.modules, "psycopg", fake_psycopg)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://private-user:private-password@private-host/private-db")
+    with caplog.at_level("ERROR", logger=rag.__name__), pytest.raises(
+        rag.RagServiceError,
+        match="database is unavailable",
+    ):
+        rag.connect_database(register_vector_type=False)
+    assert "error_type=FakeDatabaseError sqlstate=08001" in caplog.text
+    assert "message=sensitive connection detail" in caplog.text
+    for secret in ("private-password", "private-host", "private-db"):
+        assert secret not in caplog.text
+
+
+def test_database_status_runs_select_one_and_logs_sanitized_query_errors(caplog, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://private-user:private-password@private-host:6543/private-db")
+    monkeypatch.setenv("OPENAI_API_KEY", "diagnostic-openai-secret")
+
+    class FakeDatabaseError(Exception):
+        sqlstate = "42501"
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def execute(self, query):
+            assert query == "SELECT 1"
+            raise FakeDatabaseError(
+                "could not connect to postgresql://private-user:private-password@private-host:6543/private-db "
+                "host=private-host port=6543; sensitive query detail diagnostic-openai-secret"
+            )
+
+    monkeypatch.setattr(rag, "connect_database", lambda **kwargs: FakeConnection())
+    with caplog.at_level("ERROR", logger=rag.__name__):
+        status = rag.rag_database_status()
+
+    assert status["status"] == "unavailable"
+    assert status["database_connected"] is False
+    assert "stage=connectivity_check error_type=FakeDatabaseError sqlstate=42501" in caplog.text
+    assert "sensitive query detail" in caplog.text
+    assert "message=could not connect to [REDACTED_DATABASE_URL]" in caplog.text
+    assert "diagnostic-openai-secret" not in caplog.text
+    assert "private-user" not in caplog.text
+    assert "private-password" not in caplog.text
+    assert "private-host" not in caplog.text
+    assert "6543" not in caplog.text
 
 
 def test_provider_request_uses_backend_bearer_auth(monkeypatch):

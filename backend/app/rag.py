@@ -10,7 +10,7 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import httpx
 
@@ -44,6 +44,55 @@ class DuplicateDocumentError(ValueError):
 
 class LicenseNotPermittedError(ValueError):
     pass
+
+
+def _safe_database_error_message(error: BaseException) -> str:
+    message = str(error).replace("\r", " ").replace("\n", " ")
+    database_url = os.getenv("DATABASE_URL", "")
+    openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    if database_url:
+        message = message.replace(database_url, "[REDACTED_DATABASE_URL]")
+        try:
+            parsed_url = urlparse(database_url)
+            parsed_port = parsed_url.port
+        except ValueError:
+            parsed_url = None
+            parsed_port = None
+        if parsed_url is None:
+            return "[REDACTED_DATABASE_ERROR]"
+        sensitive_parts = [
+            parsed_url.username,
+            parsed_url.password,
+            parsed_url.hostname,
+            parsed_url.path.lstrip("/") if parsed_url.path else None,
+        ]
+        if parsed_port is not None:
+            sensitive_parts.append(str(parsed_port))
+        sensitive_parts.extend(value for _, value in parse_qsl(parsed_url.query))
+        for part in sensitive_parts:
+            if part:
+                message = re.sub(
+                    re.escape(unquote(part)),
+                    "[REDACTED]",
+                    message,
+                    flags=re.IGNORECASE,
+                )
+        message = re.sub(
+            r"(?i)(?:postgres(?:ql)?(?:\+\w+)?://)\S+",
+            "[REDACTED_DATABASE_URL]",
+            message,
+        )
+    if openai_api_key:
+        message = message.replace(openai_api_key, "[REDACTED]")
+    message = re.sub(
+        r"(?i)\b(host|hostaddr|port|user|username|password|dbname|database|service|sslmode|sslrootcert|sslcert|sslkey)\s*=\s*('[^']*'|\"[^\"]*\"|[^\s,;]+)",
+        r"\1=[REDACTED]",
+        message,
+    )
+    message = re.sub(r"\bport\s+\d+\b", "port [REDACTED]", message, flags=re.IGNORECASE)
+    message = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[REDACTED_IP]", message)
+    message = re.sub(r"\[[0-9a-fA-F:]+\]", "[REDACTED_IP]", message)
+    return message[:500]
 
 
 @dataclass(frozen=True)
@@ -323,9 +372,10 @@ def connect_database(*, register_vector_type: bool = True):
         raise
     except psycopg.Error as exc:
         logger.error(
-            "RAG PostgreSQL connection failed error_type=%s sqlstate=%s",
+            "RAG PostgreSQL connection failed error_type=%s sqlstate=%s message=%s",
             type(exc).__name__,
             getattr(exc, "sqlstate", None),
+            _safe_database_error_message(exc),
         )
         raise RagServiceError("Research retrieval database is unavailable.") from exc
 
@@ -350,8 +400,16 @@ def rag_database_status() -> dict[str, Any]:
     if not status["database_configured"]:
         return status
 
+    stage = "connect"
     try:
         with connect_database(register_vector_type=False) as connection:
+            stage = "connectivity_check"
+            connectivity_result = connection.execute("SELECT 1").fetchone()
+            if not connectivity_result or connectivity_result[0] != 1:
+                raise RagServiceError("Research retrieval database connectivity check failed.")
+            status["database_connected"] = True
+
+            stage = "schema_check"
             extension_available, documents_table, chunks_table = connection.execute(
                 """
                 SELECT
@@ -360,7 +418,6 @@ def rag_database_status() -> dict[str, Any]:
                     to_regclass('research_chunks') IS NOT NULL
                 """
             ).fetchone()
-            status["database_connected"] = True
             status["pgvector_available"] = bool(extension_available)
             status["schema_available"] = bool(documents_table and chunks_table)
             if not status["pgvector_available"]:
@@ -368,6 +425,7 @@ def rag_database_status() -> dict[str, Any]:
             elif not status["schema_available"]:
                 status["status"] = "schema_missing"
             else:
+                stage = "document_count"
                 document_count, chunk_count = connection.execute(
                     "SELECT (SELECT count(*) FROM research_documents), "
                     "(SELECT count(*) FROM research_chunks)"
@@ -377,10 +435,25 @@ def rag_database_status() -> dict[str, Any]:
                 status["status"] = (
                     "ready" if document_count > 0 and chunk_count > 0 else "empty"
                 )
-    except RagServiceError:
+    except RagServiceError as exc:
+        cause = exc.__cause__ or exc
+        logger.error(
+            "RAG database status failed stage=%s error_type=%s sqlstate=%s message=%s",
+            stage,
+            type(cause).__name__,
+            getattr(cause, "sqlstate", None),
+            _safe_database_error_message(cause),
+        )
         status["status"] = "unavailable"
-    except Exception:
-        logger.exception("RAG database status query failed.")
+    except Exception as exc:
+        cause = exc.__cause__ or exc
+        logger.error(
+            "RAG database status failed stage=%s error_type=%s sqlstate=%s message=%s",
+            stage,
+            type(cause).__name__,
+            getattr(cause, "sqlstate", None),
+            _safe_database_error_message(cause),
+        )
         status["status"] = "unavailable"
     return status
 
