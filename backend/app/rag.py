@@ -322,13 +322,25 @@ def connect_database(*, register_vector_type: bool = True):
     except RagServiceError:
         raise
     except psycopg.Error as exc:
+        logger.error(
+            "RAG PostgreSQL connection failed error_type=%s sqlstate=%s",
+            type(exc).__name__,
+            getattr(exc, "sqlstate", None),
+        )
         raise RagServiceError("Research retrieval database is unavailable.") from exc
 
 
 def rag_database_status() -> dict[str, Any]:
+    database_configured = bool(os.getenv("DATABASE_URL"))
+    embedding_provider_configured = bool(os.getenv("OPENAI_API_KEY"))
+    logger.info(
+        "RAG configuration database_url_present=%s openai_api_key_present=%s",
+        database_configured,
+        embedding_provider_configured,
+    )
     status: dict[str, Any] = {
         "status": "unconfigured",
-        "database_configured": bool(os.getenv("DATABASE_URL")),
+        "database_configured": database_configured,
         "database_connected": False,
         "pgvector_available": False,
         "schema_available": False,
