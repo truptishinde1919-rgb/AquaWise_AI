@@ -292,6 +292,98 @@ Open your browser to:
    * **Value:** Your live Render URL (e.g. `https://aquawise-ai-backend.onrender.com`).
 4. Click **Deploy**.
 
+## Research-backed agricultural assistant (RAG)
+
+The chat endpoint uses OpenAI embeddings and chat completions on the FastAPI backend; it does not call the legacy local knowledge list. Retrieved chunks are identified by document/chunk ID and cosine similarity in backend logs. The LLM must return a structured evidence-sufficiency decision; unsupported questions are returned without citations, and cited source indices map directly to the displayed paper/page records. Reported study accuracy must be attributed to the paper and explicitly distinguished from AquaWise model performance. The repository does not claim that a paper has been validated merely because it is registered or locally extractable; ingest documents only when their provenance and reuse license have been checked.
+
+### Backend environment
+
+Set these variables in `backend/.env` for local work and in Render's backend service settings for production:
+
+* `OPENAI_API_KEY` — backend-only key used for `text-embedding-3-small` embeddings and `gpt-4o-mini` answers.
+* `DATABASE_URL` — PostgreSQL connection string for a database with pgvector available.
+* `RAG_MIN_SIMILARITY` — optional cosine-similarity floor for retrieved chunks (default `0.2`).
+
+Do **not** add the OpenAI key to Vercel or any `NEXT_PUBLIC_*` variable. The frontend only needs `NEXT_PUBLIC_API_URL` pointing to the FastAPI service.
+
+### Database setup and PDF ingestion
+
+1. Create a PostgreSQL database with the pgvector extension available. Enable the extension and create the RAG tables/index:
+
+   ```powershell
+   psql $env:DATABASE_URL -f backend\sql\rag_schema.sql
+   ```
+
+2. Install backend dependencies and configure `backend/.env` with `OPENAI_API_KEY` and `DATABASE_URL`.
+3. Create a JSON metadata file using verified details only. Example:
+
+   ```json
+   {
+     "title": "Verified document title",
+     "authors": null,
+     "publication_year": null,
+     "source_url": null,
+     "doi": null,
+     "license": null
+   }
+   ```
+
+4. Ingest a text-based PDF (scanned image-only PDFs are rejected; OCR is not currently included):
+
+   ```powershell
+   cd backend
+   .\.venv\Scripts\python.exe scripts\ingest_research_pdf.py path\to\paper.pdf --metadata path\to\metadata.json
+   ```
+
+The ingester extracts text page-by-page, chunks it, generates embeddings, persists provenance and citations, and rejects duplicate file hashes. It does not download papers automatically. Full-text PDF ingestion currently requires an explicitly verified **CC BY 4.0** license plus verified authors, publication year, and a DOI or source URL; restricted or unspecified licenses fail closed before embedding.
+
+### Live PostgreSQL/pgvector verification
+
+The backend exposes `GET /api/rag/status`. It reports only configuration booleans, readiness state, and corpus counts; it never returns the database URL, host, username, password, or API key. Status values include `unconfigured`, `unavailable`, `pgvector_missing`, `schema_missing`, `empty`, and `ready`.
+
+After configuring `backend/.env`, applying the schema, and starting the backend, run these checks from PowerShell:
+
+```powershell
+# Confirm the backend can reach PostgreSQL and sees pgvector, tables, and stored rows.
+Invoke-RestMethod http://127.0.0.1:8000/api/rag/status | ConvertTo-Json
+
+# Confirm metadata, page-preserving chunks, generated vector dimensions, and chunk IDs in PostgreSQL.
+psql $env:DATABASE_URL -c "SELECT d.id AS document_id, d.title, d.doi, count(c.id) AS chunk_count, min(c.page_number) AS first_page, max(c.page_number) AS last_page, min(vector_dims(c.embedding)) AS min_vector_dimensions, max(vector_dims(c.embedding)) AS max_vector_dimensions FROM research_documents d JOIN research_chunks c ON c.document_id = d.id GROUP BY d.id, d.title, d.doi ORDER BY d.id;"
+
+# Ask a question supported by the ingested paper; use the actual API response to verify
+# evidence_used, answer citation markers, and references with matching source_index/page_number.
+$body = @{ message = "What dataset did the study use?"; history = @() } | ConvertTo-Json -Depth 5
+Invoke-RestMethod http://127.0.0.1:8000/api/chat -Method Post -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 8
+
+# An unrelated question must return evidence_used=false and references=[] when evidence is insufficient.
+$body = @{ message = "What is the best pesticide for my crop?"; history = @() } | ConvertTo-Json -Depth 5
+Invoke-RestMethod http://127.0.0.1:8000/api/chat -Method Post -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 8
+```
+
+Confirm backend logs for the supported question show `document_id`, `chunk_id`, `page_number`, and `similarity`; check that the cited page belongs to the retrieved PDF text and each displayed `source_index` matches an inline answer citation. The SQL result must show at least one document, one chunk, and exactly 1536 vector dimensions. The unsupported question must have no fabricated citations. A healthy status endpoint or passing mocked tests alone does **not** prove successful semantic retrieval. Run these checks against the configured database and OpenAI provider before claiming live RAG acceptance. For Render, call `https://<your-render-service>/api/rag/status` and use the same SQL checks with that service's PostgreSQL database; do not put backend secrets in Vercel.
+
+### Local development and deployment
+
+```powershell
+# Backend, from repository root
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+
+# Frontend, in a second terminal
+cd frontend
+npm ci
+npm test
+npm run build
+npm run dev
+```
+
+For Render, deploy the existing FastAPI backend as before, add `OPENAI_API_KEY`, `DATABASE_URL`, and optionally `RAG_MIN_SIMILARITY`, then run the SQL schema against the pgvector database and ingest the approved documents. For Vercel, keep the current frontend root and set only `NEXT_PUBLIC_API_URL` to the Render API URL. Existing potability and agricultural prediction routes are unchanged.
+
+The chat endpoint returns an explicit “insufficient research” result if no matching excerpts are retrieved or the LLM judges the retrieved evidence insufficient. Provider/database errors are surfaced to the UI; there is no local-knowledge answer fallback. Automated tests verify actual page text and chunk/page citation mapping against the bundled Frontiers PDF, plus mocked retrieval, citation, abstention, and provider behavior. These tests do not prove that the PDF is stored in a live database or that live semantic retrieval works; a configured OpenAI account and PostgreSQL/pgvector instance are required for that validation.
+
 ---
 
 ## 🛡️ License & Ethics

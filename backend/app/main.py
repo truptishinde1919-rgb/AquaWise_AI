@@ -15,12 +15,24 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from starlette.concurrency import run_in_threadpool
+
+from app.rag import (
+    RagServiceError,
+    citation_for_chunk,
+    generate_answer,
+    generate_embeddings,
+    rag_database_status,
+    search_research_chunks,
+)
 
 from app.schemas import (
     WaterParametersInput,
     PredictionResponse,
     ParameterStatus,
     HealthResponse,
+    ChatRequest,
+    ChatResponse,
 )
 
 # Load optional .env file
@@ -71,6 +83,57 @@ else:
     print(f"[STARTUP WARNING] Model artifacts not found at {MODEL_FILE}")
 
 
+@app.post("/api/chat", response_model=ChatResponse, tags=["AI Assistant"])
+async def agri_chat(payload: ChatRequest):
+    """Answer with OpenAI using semantically retrieved, page-cited research evidence."""
+    try:
+        query_embedding = (await generate_embeddings([payload.message]))[0]
+        docs = await run_in_threadpool(search_research_chunks, query_embedding, 5)
+        if not docs:
+            return ChatResponse(
+                answer=(
+                    "I could not find sufficiently relevant research in the configured document library to "
+                    "answer this reliably. Add suitable peer-reviewed or official technical sources and try again."
+                ),
+                references=[],
+                provider="none",
+                uncertainty="No relevant documents were retrieved; no LLM answer was generated.",
+                evidence_used=False,
+            )
+
+        rag_answer = await generate_answer(
+            payload.message,
+            docs,
+            [message.model_dump() for message in payload.history],
+        )
+        if not rag_answer.evidence_sufficient:
+            return ChatResponse(
+                answer=rag_answer.answer,
+                references=[],
+                provider="openai",
+                uncertainty="Retrieved research was insufficient to answer; no source is cited as support.",
+                evidence_used=False,
+            )
+
+        references = [
+            {"source_index": index, **citation_for_chunk(docs[index - 1])}
+            for index in rag_answer.citations
+        ]
+        return ChatResponse(
+            answer=rag_answer.answer,
+            references=references,
+            provider="openai",
+            uncertainty=(
+                "The response is based on retrieved excerpts and cites their source pages. "
+                "Evidence may not cover local conditions; verify agronomic decisions with local experts. "
+                "No pesticide dose or application instruction is provided."
+            ),
+            evidence_used=True,
+        )
+    except RagServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @app.get("/", tags=["General"])
 def read_root():
     """Welcome endpoint confirming API operational state."""
@@ -92,6 +155,16 @@ def health_check():
         model_name=metadata.get("model_name", "Unknown") if metadata else "None",
         environment=os.getenv("ENVIRONMENT", "development"),
     )
+
+
+@app.get("/api/rag/status", tags=["Diagnostics"])
+async def research_rag_status():
+    """Return sanitized database/vector status without exposing connection details."""
+    status = await run_in_threadpool(rag_database_status)
+    return {
+        **status,
+        "embedding_provider_configured": bool(os.getenv("OPENAI_API_KEY")),
+    }
 
 
 @app.get("/api/metadata", tags=["Model Inspection"])

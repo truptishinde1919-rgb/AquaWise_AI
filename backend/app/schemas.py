@@ -5,8 +5,40 @@ Pydantic data schemas for request validation, parameter bounds checking,
 and structured API responses in AquaWise AI.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
+
+
+class ChatMessage(BaseModel):
+    """Single message in a conversation history record."""
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+class ChatRequest(BaseModel):
+    """Agricultural question to answer using retrieved research documents."""
+    message: str = Field(..., min_length=2, max_length=2000)
+    history: List[ChatMessage] = Field(default_factory=list, max_length=20)
+
+
+class ResearchCitation(BaseModel):
+    source_index: int
+    title: str
+    authors: Optional[List[str]] = None
+    publication_year: Optional[int] = None
+    page_number: int
+    source_url: Optional[str] = None
+    doi: Optional[str] = None
+    license: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    """Answer and verifiable citations from the research retrieval corpus."""
+    answer: str
+    references: List[ResearchCitation]
+    provider: str
+    uncertainty: str
+    evidence_used: bool
 
 
 class WaterParametersInput(BaseModel):
