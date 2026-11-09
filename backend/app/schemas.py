@@ -41,6 +41,118 @@ class ChatResponse(BaseModel):
     evidence_used: bool
 
 
+class IrrigationAssessmentInput(BaseModel):
+    """Input schema for irrigation requirement estimation in agricultural settings."""
+    crop: str = Field(..., min_length=2, description="Crop type such as rice, wheat, maize, cotton, tomato")
+    growth_stage: str = Field(..., min_length=2, description="Vegetative, flowering, fruiting, maturity")
+    farm_area_ha: float = Field(..., gt=0, description="Farm size in hectares")
+    soil_type: str = Field(..., min_length=2, description="Soil family like sandy loam, clay loam, loam")
+    soil_moisture_pct: float = Field(..., ge=0, le=100, description="Current soil moisture percentage")
+    temperature_c: float = Field(..., ge=-20, le=60, description="Air temperature in °C")
+    humidity_pct: float = Field(..., ge=0, le=100, description="Relative humidity percentage")
+    rainfall_mm: float = Field(..., ge=0, description="Rainfall received in mm")
+    irrigation_method: str = Field(..., min_length=2, description="Drip, sprinkler, flood, rainfed")
+    crop_water_requirement_mm: float = Field(..., gt=0, description="Crop water requirement in mm per season or day")
+    weather_forecast: Optional[str] = Field(default=None, description="Short weather forecast summary")
+
+
+class IrrigationAssessmentResponse(BaseModel):
+    """Response from irrigation requirement model."""
+    estimated_irrigation_requirement_liters: float
+    irrigation_urgency: str
+    suggested_irrigation_timing: str
+    water_deficit_mm: float
+    rainfall_contribution_mm: float
+    explanation: str
+
+
+class SoilMoistureForecastInput(BaseModel):
+    """Input schema for soil moisture forecasting."""
+    current_soil_moisture_pct: float = Field(..., ge=0, le=100)
+    historical_soil_moisture_pct: List[float] = Field(default_factory=list, description="Recent history of soil moisture values")
+    rainfall_mm: float = Field(default=0.0, ge=0)
+    irrigation_events: int = Field(default=0, ge=0)
+    temperature_c: float = Field(default=25.0, ge=-20, le=60)
+    crop_water_requirement_mm: float = Field(default=60.0, gt=0)
+
+
+class SoilMoistureForecastResponse(BaseModel):
+    """Forecasted soil moisture and water stress information."""
+    current_measured_moisture_pct: float
+    forecast_soil_moisture_pct: float
+    moisture_trend: str
+    water_stress_warning: bool
+    irrigation_alerts: List[str]
+    explanation: str
+
+
+class IrrigationWaterQualityInput(BaseModel):
+    """Separate irrigation water suitability assessment, distinct from drinking-water potability."""
+    ph: float = Field(..., ge=0.0, le=14.0)
+    electrical_conductivity: float = Field(..., ge=0.0, le=5000.0)
+    sodium_adsorption_ratio: float = Field(..., ge=0.0, le=50.0)
+    salinity: float = Field(..., ge=0.0, le=20000.0)
+    chloride: float = Field(..., ge=0.0, le=5000.0)
+    bicarbonate: float = Field(..., ge=0.0, le=5000.0)
+    boron: float = Field(..., ge=0.0, le=20.0)
+
+
+class IrrigationWaterQualityResponse(BaseModel):
+    """Water suitability for irrigation use."""
+    suitability: str
+    suitability_score: float
+    reasons: List[str]
+    safe_for_irrigation: bool
+    explanation: str
+
+
+class WaterForecastInput(BaseModel):
+    """Input schema for daily and 7-day irrigation planning."""
+    crop: str = Field(..., min_length=2)
+    farm_area_ha: float = Field(..., gt=0)
+    current_soil_moisture_pct: float = Field(..., ge=0, le=100)
+    daily_water_requirement_liters: float = Field(..., ge=0)
+    forecast_rainfall_mm: float = Field(..., ge=0)
+    historical_usage_liters: List[float] = Field(default_factory=list)
+
+
+class WaterForecastResponse(BaseModel):
+    """Water forecast and consumption analytics."""
+    daily_water_requirement_liters: float
+    seven_day_irrigation_plan_liters: float
+    water_usage_analytics: Dict[str, float]
+    water_saving_suggestions: List[str]
+    historical_comparison: str
+
+
+class PestRiskInput(BaseModel):
+    """Input schema for crop-specific pest risk assessment."""
+    crop: str = Field(..., min_length=2)
+    crop_variety: str = Field(default="standard", min_length=1)
+    growth_stage: str = Field(..., min_length=2)
+    temperature_c: float = Field(..., ge=-20, le=60)
+    relative_humidity_pct: float = Field(..., ge=0, le=100)
+    rainfall_mm: float = Field(..., ge=0)
+    leaf_wetness_pct: float = Field(..., ge=0, le=100)
+    soil_moisture_pct: float = Field(..., ge=0, le=100)
+    location: str = Field(default="Unknown", min_length=1)
+    season: str = Field(default="Kharif", min_length=2)
+    recent_pest_observations: str = Field(default="None")
+    previous_pest_history: str = Field(default="None")
+
+
+class PestRiskResponse(BaseModel):
+    """Risk assessment and explanatory factors for crop pest prediction."""
+    crop: str
+    risk_level: str
+    risk_score: float
+    uncertainty: str
+    risk_factors: List[str]
+    explanation: str
+    model_status: str
+    data_provenance: Dict[str, Any]
+
+
 class WaterParametersInput(BaseModel):
     """
     Input schema representing 9 chemical and physical water metrics.

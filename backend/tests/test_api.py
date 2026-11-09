@@ -45,6 +45,58 @@ def test_root_health_endpoint():
     assert "model_name" in data
 
 
+def test_rag_status_endpoint_exposes_only_sanitized_configuration(monkeypatch):
+    from app import main
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sensitive-test-key")
+    monkeypatch.setattr(
+        main,
+        "rag_database_status",
+        lambda: {
+            "status": "ready",
+            "database_configured": True,
+            "database_connected": True,
+            "pgvector_available": True,
+            "schema_available": True,
+            "document_count": 1,
+            "chunk_count": 43,
+        },
+    )
+    response = client.get("/api/rag/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ready"
+    assert data["document_count"] == 1
+    assert data["chunk_count"] == 43
+    assert data["embedding_provider_configured"] is True
+    assert "DATABASE_URL" not in data
+    assert "OPENAI_API_KEY" not in data
+    assert "sensitive-test-key" not in response.text
+
+
+def test_rag_status_endpoint_reports_missing_services_without_secrets(monkeypatch):
+    from app import main
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        main,
+        "rag_database_status",
+        lambda: {
+            "status": "unconfigured",
+            "database_configured": False,
+            "database_connected": False,
+            "pgvector_available": False,
+            "schema_available": False,
+            "document_count": None,
+            "chunk_count": None,
+        },
+    )
+    response = client.get("/api/rag/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "unconfigured"
+    assert response.json()["embedding_provider_configured"] is False
+
+
 def test_metadata_endpoint():
     response = client.get("/api/metadata")
     assert response.status_code == 200
@@ -95,55 +147,49 @@ def test_predict_with_default_imputed_payload():
     assert "potability_label" in data
 
 
-def test_rag_status_endpoint_exposes_only_sanitized_configuration(monkeypatch):
-    from app import main
-
-    monkeypatch.setenv("OPENAI_API_KEY", "sensitive-test-key")
-    monkeypatch.setattr(
-        main,
-        "rag_database_status",
-        lambda: {
-            "status": "ready",
-            "database_configured": True,
-            "database_connected": True,
-            "pgvector_available": True,
-            "schema_available": True,
-            "document_count": 1,
-            "chunk_count": 43,
-        },
-    )
-    response = client.get("/api/rag/status")
+def test_agri_irrigation_endpoint():
+    payload = {
+        "crop": "rice",
+        "growth_stage": "vegetative",
+        "farm_area_ha": 3.5,
+        "soil_type": "clay loam",
+        "soil_moisture_pct": 32.0,
+        "temperature_c": 31.0,
+        "humidity_pct": 64.0,
+        "rainfall_mm": 12.0,
+        "irrigation_method": "drip",
+        "crop_water_requirement_mm": 68.0,
+        "weather_forecast": "Dry spell expected during next 48 hours.",
+    }
+    response = client.post("/api/agri/irrigation", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "ready"
-    assert data["document_count"] == 1
-    assert data["chunk_count"] == 43
-    assert data["embedding_provider_configured"] is True
-    assert "DATABASE_URL" not in data
-    assert "OPENAI_API_KEY" not in data
-    assert "sensitive-test-key" not in response.text
+    assert "estimated_irrigation_requirement_liters" in data
+    assert data["irrigation_urgency"] in {"Low", "Moderate", "High"}
 
-def test_rag_status_endpoint_reports_missing_services_without_secrets(monkeypatch):
-    from app import main
 
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(
-        main,
-        "rag_database_status",
-        lambda: {
-            "status": "unconfigured",
-            "database_configured": False,
-            "database_connected": False,
-            "pgvector_available": False,
-            "schema_available": False,
-            "document_count": None,
-            "chunk_count": None,
-        },
-    )
-    response = client.get("/api/rag/status")
+def test_agri_pest_risk_endpoint():
+    payload = {
+        "crop": "rice",
+        "crop_variety": "Basmati",
+        "growth_stage": "vegetative",
+        "temperature_c": 29.0,
+        "relative_humidity_pct": 82.0,
+        "rainfall_mm": 35.0,
+        "leaf_wetness_pct": 75.0,
+        "soil_moisture_pct": 62.0,
+        "location": "Satara",
+        "season": "Kharif",
+        "recent_pest_observations": "Leaf blight identified in lower canopy",
+        "previous_pest_history": "High risk in previous season",
+    }
+    response = client.post("/api/agri/pest-risk", json=payload)
     assert response.status_code == 200
-    assert response.json()["status"] == "unconfigured"
-    assert response.json()["embedding_provider_configured"] is False
+    data = response.json()
+    assert "risk_level" in data
+    assert "risk_score" in data
+    assert data["model_status"] == "baseline-rule-based model"
+
 
 def test_chat_endpoint_returns_research_citations(monkeypatch):
     from app import main, rag
@@ -193,6 +239,7 @@ def test_chat_endpoint_returns_research_citations(monkeypatch):
     assert data["references"][0]["source_index"] == 1
     assert data["references"][0]["page_number"] == 8
     assert data["references"][0]["doi"] == "10.0000/example"
+
 
 def test_chat_endpoint_maps_only_cited_chunks_to_source_panel(monkeypatch):
     from app import main, rag
@@ -248,6 +295,7 @@ def test_chat_endpoint_maps_only_cited_chunks_to_source_panel(monkeypatch):
         }
     ]
 
+
 def test_chat_endpoint_reports_insufficient_retrieved_evidence_without_citation(monkeypatch):
     from app import main, rag
 
@@ -283,6 +331,7 @@ def test_chat_endpoint_reports_insufficient_retrieved_evidence_without_citation(
     assert data["evidence_used"] is False
     assert data["references"] == []
 
+
 def test_chat_endpoint_reports_empty_retrieval_without_faking_llm(monkeypatch):
     from app import main
 
@@ -302,6 +351,7 @@ def test_chat_endpoint_reports_empty_retrieval_without_faking_llm(monkeypatch):
     assert data["provider"] == "none"
     assert data["evidence_used"] is False
     assert data["references"] == []
+
 
 def test_chat_endpoint_returns_explicit_provider_error(monkeypatch):
     from app import main, rag

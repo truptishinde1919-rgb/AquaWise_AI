@@ -29,6 +29,7 @@ The project features a decoupled microservices architecture: a high-performance 
 * **🛡️ Zero Data-Leakage Pipeline:** Production `scikit-learn.pipeline.Pipeline` with median imputation prevents 40% data loss from real-world sensor dropouts without leaking test information.
 * **☁️ Production Microservices:** Decoupled architecture isolates heavy Python scientific dependencies from lightweight Edge-rendered Next.js frontends.
 * **🐳 Containerized:** Multi-stage Dockerfile baking pre-trained model artifacts at build time for fast, deterministic cold starts.
+* **🌱 Farmer Dashboard Prototype:** Responsive navigation for farm overview, irrigation, crop scanning, IPM guidance, growth tracking, and the research assistant. Existing prediction/chat routes remain connected; weather and image-classification examples are clearly labeled demos, and farmer profile data is stored only in the current browser.
 
 ---
 

@@ -46,53 +46,64 @@ class LicenseNotPermittedError(ValueError):
     pass
 
 
+_DATABASE_ERROR_DETAILS = {
+    "DNS resolution failure": "Host name could not be resolved.",
+    "Connection timeout": "Connection attempt timed out.",
+    "Connection refused": "Target refused the connection.",
+    "Authentication failure": "Server rejected database authentication.",
+    "Invalid hostname or port": "Connection target hostname or port is invalid.",
+    "SSL negotiation failure": "TLS/SSL negotiation failed.",
+    "Other connection error": "No recognized connection failure signature.",
+}
+
+
+def _classify_database_error(error: BaseException) -> str:
+    messages = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        messages.append(str(current).lower())
+        current = current.__cause__ or current.__context__
+    message = " ".join(messages)
+
+    if any(term in message for term in (
+        "password authentication failed",
+        "authentication failed",
+        "invalid password",
+        "no password supplied",
+    )):
+        return "Authentication failure"
+    if any(term in message for term in (
+        "ssl", "tls", "certificate verify failed", "handshake failure",
+    )):
+        return "SSL negotiation failure"
+    if any(term in message for term in (
+        "connection timed out", "timeout expired", "timed out", "timeout",
+    )):
+        return "Connection timeout"
+    if any(term in message for term in ("connection refused", "actively refused")):
+        return "Connection refused"
+    if any(term in message for term in (
+        "invalid port", "port out of range", "port must be",
+        "invalid hostname", "hostname is invalid",
+    )):
+        return "Invalid hostname or port"
+    if any(term in message for term in (
+        "getaddrinfo failed",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "nodename nor servname provided",
+        "could not translate host name",
+        "no address associated with hostname",
+        "name resolution",
+    )):
+        return "DNS resolution failure"
+    return "Other connection error"
+
+
 def _safe_database_error_message(error: BaseException) -> str:
-    message = str(error).replace("\r", " ").replace("\n", " ")
-    database_url = os.getenv("DATABASE_URL", "")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "")
-    if database_url:
-        message = message.replace(database_url, "[REDACTED_DATABASE_URL]")
-        try:
-            parsed_url = urlparse(database_url)
-            parsed_port = parsed_url.port
-        except ValueError:
-            parsed_url = None
-            parsed_port = None
-        if parsed_url is None:
-            return "[REDACTED_DATABASE_ERROR]"
-        sensitive_parts = [
-            parsed_url.username,
-            parsed_url.password,
-            parsed_url.hostname,
-            parsed_url.path.lstrip("/") if parsed_url.path else None,
-        ]
-        if parsed_port is not None:
-            sensitive_parts.append(str(parsed_port))
-        sensitive_parts.extend(value for _, value in parse_qsl(parsed_url.query))
-        for part in sensitive_parts:
-            if part:
-                message = re.sub(
-                    re.escape(unquote(part)),
-                    "[REDACTED]",
-                    message,
-                    flags=re.IGNORECASE,
-                )
-        message = re.sub(
-            r"(?i)(?:postgres(?:ql)?(?:\+\w+)?://)\S+",
-            "[REDACTED_DATABASE_URL]",
-            message,
-        )
-    if openai_api_key:
-        message = message.replace(openai_api_key, "[REDACTED]")
-    message = re.sub(
-        r"(?i)\b(host|hostaddr|port|user|username|password|dbname|database|service|sslmode|sslrootcert|sslcert|sslkey)\s*=\s*('[^']*'|\"[^\"]*\"|[^\s,;]+)",
-        r"\1=[REDACTED]",
-        message,
-    )
-    message = re.sub(r"\bport\s+\d+\b", "port [REDACTED]", message, flags=re.IGNORECASE)
-    message = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[REDACTED_IP]", message)
-    message = re.sub(r"\[[0-9a-fA-F:]+\]", "[REDACTED_IP]", message)
-    return message[:500]
+    return _DATABASE_ERROR_DETAILS[_classify_database_error(error)]
 
 
 @dataclass(frozen=True)
@@ -372,7 +383,8 @@ def connect_database(*, register_vector_type: bool = True):
         raise
     except psycopg.Error as exc:
         logger.error(
-            "RAG PostgreSQL connection failed error_type=%s sqlstate=%s message=%s",
+            "RAG PostgreSQL connection failed reason=%s error_type=%s sqlstate=%s detail=%s",
+            _classify_database_error(exc),
             type(exc).__name__,
             getattr(exc, "sqlstate", None),
             _safe_database_error_message(exc),
@@ -438,8 +450,9 @@ def rag_database_status() -> dict[str, Any]:
     except RagServiceError as exc:
         cause = exc.__cause__ or exc
         logger.error(
-            "RAG database status failed stage=%s error_type=%s sqlstate=%s message=%s",
+            "RAG database status failed stage=%s reason=%s error_type=%s sqlstate=%s detail=%s",
             stage,
+            _classify_database_error(cause),
             type(cause).__name__,
             getattr(cause, "sqlstate", None),
             _safe_database_error_message(cause),
@@ -448,8 +461,9 @@ def rag_database_status() -> dict[str, Any]:
     except Exception as exc:
         cause = exc.__cause__ or exc
         logger.error(
-            "RAG database status failed stage=%s error_type=%s sqlstate=%s message=%s",
+            "RAG database status failed stage=%s reason=%s error_type=%s sqlstate=%s detail=%s",
             stage,
+            _classify_database_error(cause),
             type(cause).__name__,
             getattr(cause, "sqlstate", None),
             _safe_database_error_message(cause),

@@ -635,10 +635,41 @@ def test_database_connect_logs_driver_type_without_connection_details(caplog, mo
         match="database is unavailable",
     ):
         rag.connect_database(register_vector_type=False)
-    assert "error_type=FakeDatabaseError sqlstate=08001" in caplog.text
-    assert "message=sensitive connection detail" in caplog.text
+    assert "reason=Other connection error error_type=FakeDatabaseError sqlstate=08001" in caplog.text
+    assert "detail=No recognized connection failure signature." in caplog.text
     for secret in ("private-password", "private-host", "private-db"):
         assert secret not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("raw_message", "expected_reason"),
+    [
+        ("[Errno 11001] getaddrinfo failed for secret.host", "DNS resolution failure"),
+        ("connection timed out for host=secret.host", "Connection timeout"),
+        ("connection refused at 10.1.2.3:6543", "Connection refused"),
+        ("password authentication failed for user secret-user", "Authentication failure"),
+        ("invalid port 6543 for host=secret.host", "Invalid hostname or port"),
+        ("SSL negotiation failed for postgresql://secret:password@secret.host/db", "SSL negotiation failure"),
+        ("unexpected driver failure secret-token", "Other connection error"),
+    ],
+)
+def test_database_error_classification_is_secret_safe(
+    raw_message, expected_reason, monkeypatch
+):
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://secret:password@secret.host:6543/db?sslmode=require",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "secret-openai-key")
+    error = RuntimeError(raw_message)
+    assert rag._classify_database_error(error) == expected_reason
+    safe_detail = rag._safe_database_error_message(error)
+    assert safe_detail == rag._DATABASE_ERROR_DETAILS[expected_reason]
+    for secret in (
+        "secret.host", "secret-user", "password", "secret-token",
+        "10.1.2.3", "6543", "secret-openai-key",
+    ):
+        assert secret not in safe_detail
 
 
 def test_database_status_runs_select_one_and_logs_sanitized_query_errors(caplog, monkeypatch):
@@ -668,9 +699,12 @@ def test_database_status_runs_select_one_and_logs_sanitized_query_errors(caplog,
 
     assert status["status"] == "unavailable"
     assert status["database_connected"] is False
-    assert "stage=connectivity_check error_type=FakeDatabaseError sqlstate=42501" in caplog.text
-    assert "sensitive query detail" in caplog.text
-    assert "message=could not connect to [REDACTED_DATABASE_URL]" in caplog.text
+    assert (
+        "stage=connectivity_check reason=Other connection error "
+        "error_type=FakeDatabaseError sqlstate=42501" in caplog.text
+    )
+    assert "sensitive query detail" not in caplog.text
+    assert "detail=No recognized connection failure signature." in caplog.text
     assert "diagnostic-openai-secret" not in caplog.text
     assert "private-user" not in caplog.text
     assert "private-password" not in caplog.text
